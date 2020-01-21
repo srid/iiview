@@ -64,14 +64,14 @@ renderPage :: Page -> Html ()
 renderPage page = with html_ [lang_ "en"] $ do
   head_ $ do
     meta_ [httpEquiv_ "Content-Type", content_ "text/html; charset=utf-8"]
+    stylesheet "https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css"
+    stylesheet "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.min.css"
     title_ $ case page of
       Page_Index _ -> "My website!"
       Page_Single src -> toHtml $ title $ getMeta src
     style_ [type_ "text/css"] $ Clay.render pageStyle
   body_ $ do
-    with div_ [id_ "thesite"] $ do
-      with div_ [class_ "header"] $ 
-        with a_ [href_ "/"] "Back to Home"
+    with div_ [class_ "ui text container", id_ "thesite"] $ do
       case page of
         Page_Index srcs -> div_ $ forM_ srcs $ \src ->
           with li_ [class_ "pages"] $ do
@@ -83,6 +83,7 @@ renderPage page = with html_ [lang_ "en"] $ do
             h1_ $ toHtml $ title $ getMeta src
             MMark.render $ Rib.sourceVal src
   where
+    stylesheet x = link_ [rel_ "stylesheet", href_ x]
     renderMarkdown =
       MMark.render . either (error . T.unpack) id . MMark.parsePure "<none>"
 
@@ -90,8 +91,6 @@ renderPage page = with html_ [lang_ "en"] $ do
 pageStyle :: Css
 pageStyle = "div#thesite" ? do
   margin (em 4) (pc 20) (em 1) (pc 20)
-  ".header"? do
-    marginBottom $ em 2
   "li.pages" ? do
     listStyleType none
     marginTop $ em 1
