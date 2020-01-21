@@ -1,33 +1,67 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main where
 
-import Clay hiding (id, meta, src, title, type_)
-import Control.Monad
+import Clay hiding (id, meta, src, title, type_, parse, dirname)
 import Data.Aeson (FromJSON, fromJSON)
 import qualified Data.Aeson as Aeson
-import qualified Data.Text as T
-import Data.Text (Text)
 import Development.Shake
-import GHC.Generics
 import Lucid
 import Path
 import Rib (MMark, Source)
 import qualified Rib
 import qualified Rib.Parser.MMark as MMark
+import Text.Megaparsec
+import Text.Megaparsec.Char
+import Prelude hiding (some, div)
+
+type Parser = Parsec Void Text
+
+-- | Parse the channel name out of its "out" filename
+channelNameParser :: Parser Text
+channelNameParser = do
+  _ <- some (char '#')
+  toText <$> someTill printChar (char '/')
+
+data Channel
+  = Channel
+      { _channel_name :: Text,
+        _channel_logs :: [Log]
+      }
+  deriving (Eq, Show)
+
+data Log
+  = Log
+      { _log_text :: Text
+      }
+  deriving (Eq, Show)
+
+parseChannelLogs :: Rib.SourceReader Channel
+parseChannelLogs fp = do
+  let chNameRaw = toText $ toFilePath $ dirname $ parent fp
+  case parse channelNameParser "" chNameRaw of 
+    Left e -> 
+      pure $ Left $ toText $ errorBundlePretty e
+    Right chName -> do
+      logs <- fmap Log . lines <$> readFileText (toFilePath fp)
+      pure $ Right $ Channel chName logs
+
+-- pure $ Left "not impl"
 
 -- | This will be our type representing generated pages.
 --
 -- Each `Source` specifies the parser type to use. Rib provides `MMark` and
 -- `Pandoc`; but you may define your own as well.
 data Page
-  = Page_Index [Source MMark]
-  | Page_Single (Source MMark)
+  = Page_Index [Source Channel]
+  | Page_Single (Source Channel)
 
 -- | Main entry point to our generator.
 --
@@ -52,12 +86,17 @@ generateSite = do
   -- - Function that will parse the file (here we use mmark)
   -- - File patterns to build
   -- - Function that will generate the HTML (see below)
-  srcs <-
-    Rib.buildHtmlMulti MMark.parse [[relfile|*.md|]] $
-      renderPage . Page_Single
+  chs <-
+    Rib.forEvery [[relfile|#*/out|]] $ \k ->
+      Rib.buildHtml k parseChannelLogs outfileFn $
+        renderPage . Page_Single
   -- Write an index.html linking to the aforementioned files.
   Rib.writeHtml [relfile|index.html|] $
-    renderPage (Page_Index srcs)
+    renderPage (Page_Index chs)
+  where
+    outfileFn _fp ch = do 
+      liftIO $ parseRelFile $ toString $ _channel_name ch <> ".html"
+
 
 -- | Define your site HTML here
 renderPage :: Page -> Html ()
@@ -68,29 +107,32 @@ renderPage page = with html_ [lang_ "en"] $ do
     stylesheet "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.min.css"
     title_ $ case page of
       Page_Index _ -> "My website!"
-      Page_Single src -> toHtml $ title $ getMeta src
+      Page_Single ch -> toHtml $ _channel_name $ Rib.sourceVal ch
     style_ [type_ "text/css"] $ Clay.render pageStyle
   body_ $ do
     with div_ [class_ "ui text container", id_ "thesite"] $ do
       case page of
-        Page_Index srcs -> div_ $ forM_ srcs $ \src ->
+        Page_Index chs -> div_ $ forM_ chs $ \ch ->
           with li_ [class_ "pages"] $ do
-            let meta = getMeta src
-            b_ $ with a_ [href_ (Rib.sourceUrl src)] $ toHtml $ title meta
-            maybe mempty renderMarkdown $ description meta
-        Page_Single src ->
+            b_ $ with a_ [href_ (Rib.sourceUrl ch)] $ toHtml $ _channel_name $ Rib.sourceVal ch
+        Page_Single (Rib.sourceVal -> ch) ->
           with article_ [class_ "post"] $ do
-            h1_ $ toHtml $ title $ getMeta src
-            MMark.render $ Rib.sourceVal src
+            h1_ $ toHtml $ _channel_name ch
+            with div_ [class_ "logs"] $ 
+              forM_ (_channel_logs ch) $ \(Log logS) -> do
+                li_ $ code_ $ toHtml logS
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
-    renderMarkdown =
-      MMark.render . either (error . T.unpack) id . MMark.parsePure "<none>"
 
 -- | Define your site CSS here
 pageStyle :: Css
 pageStyle = "div#thesite" ? do
   margin (em 4) (pc 20) (em 1) (pc 20)
+  ".logs" ? do 
+    "li" ? do 
+      listStyleType none
+    "code" ? do
+      fontSize $ pct 80
   "li.pages" ? do
     listStyleType none
     marginTop $ em 1
@@ -111,5 +153,5 @@ getMeta :: Source MMark -> SrcMeta
 getMeta src = case MMark.projectYaml (Rib.sourceVal src) of
   Nothing -> error "No YAML metadata"
   Just val -> case fromJSON val of
-    Aeson.Error e -> error $ "JSON error: " <> e
+    Aeson.Error e -> error $ "JSON error: " <> toText e
     Aeson.Success v -> v

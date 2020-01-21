@@ -13,12 +13,17 @@ executable iiview
         -Wall
         -Wincomplete-record-updates
         -Wincomplete-uni-patterns
+    mixins: 
+        base hiding (Prelude),
+        relude (Relude as Prelude)
     build-depends:
         base,
         aeson,
         clay,
         lucid,
+        megaparsec,
         path,
         rib,
+        relude,
         shake,
         text
