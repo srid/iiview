@@ -1,0 +1,24 @@
+cabal-version: 2.4
+name: iiview
+version: 0.1.0.0
+license: BSD-3-Clause
+maintainer: srid@srid.ca
+author: Sridhar Ratnakumar
+category: Web
+
+executable iiview
+    main-is: Main.hs
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+    build-depends:
+        base,
+        aeson,
+        clay,
+        lucid,
+        path,
+        rib,
+        shake,
+        text
