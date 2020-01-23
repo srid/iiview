@@ -16,7 +16,7 @@ import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Time
 import Data.Time.Clock.POSIX
-import Development.Shake
+import Development.Shake (Action)
 import Lucid
 import Path
 import Rib (Source)
@@ -30,16 +30,33 @@ type Parser = Parsec Void Text
 data Log
   = Log
       { _log_time :: UTCTime,
-        _log_msg :: Text
+        _log_msg :: Msg
       }
+  deriving (Eq, Show)
+
+newtype User = User { unUser :: Text }
+  deriving (Eq, Show)
+
+data Msg 
+  = Msg_Control Text
+  | Msg_User User Text
   deriving (Eq, Show)
 
 logParser :: Parser Log
 logParser = do
   Just time <- fmap (posixSecondsToUTCTime . fromIntegral) . readMaybe @Int <$> some digitChar
-  -- TODO: parse msg further
-  msg <- toText <$> someTill anySingle eof
+  _ <- char ' '
+  msg <- try controlMsg <|> userMsg 
   pure $ Log time msg
+  where 
+    controlMsg = Msg_Control <$> (string "-!-" *> restOfIt)
+    userMsg = do 
+      _ <- char '<'
+      user <- User . toText <$> someTill anySingle (char '>')
+      _ <- char ' '
+      s <- restOfIt
+      pure $ Msg_User user s
+    restOfIt = toText <$> someTill anySingle eof
 
 data Channel
   = Channel
@@ -142,13 +159,18 @@ renderPage page = with html_ [lang_ "en"] $ do
             h1_ $ toHtml $ _channel_name ch
             with div_ [class_ "logs"] $ do
               h2_ $ toHtml $ show @Text day
-              forM_ logs $ \(Log ts s) -> do
-                li_ $ do
+              forM_ logs $ \(Log ts msg) -> do
+                with li_ [class_ "log-message"] $ do
                   let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
                   with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
                     $ toHtml
                     $ formatTime defaultTimeLocale "%H:%M" ts
-                  code_ $ toHtml s
+                  case msg of 
+                    Msg_Control s -> with span_ [class_ "control"] $ toHtml s
+                    Msg_User (User user) s -> with span_ [class_ "user"] $ do 
+                      b_ $ toHtml user
+                      ": "
+                      toHtml s
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
 
@@ -166,3 +188,8 @@ pageStyle = "div#thesite" ? do
     C.marginTop $ em 1
     "b" ? C.fontSize (em 1.2)
     "p" ? sym C.margin (px 0)
+  ".log-message" ? do 
+    "span.control" ? 
+      C.color C.grey
+    "span.user" ? 
+      C.color C.black
