@@ -70,7 +70,10 @@ parseChannel fp = do
             fail $ errorBundlePretty e
           Right log ->
             pure log
-      pure $ Right $ Channel chName $ Map.fromListWith (<>) $ (\l -> (utctDay $ _log_time l, [l])) <$> logs
+      pure $ Right $ Channel chName
+        $ fmap (sortOn _log_time)
+        $ Map.fromListWith (<>)
+        $ (\l -> (utctDay $ _log_time l, [l])) <$> logs
 
 -- | This will be our type representing generated pages.
 --
@@ -79,7 +82,7 @@ parseChannel fp = do
 data Page
   = Page_Index [Source Channel]
   | Page_Channel (Source Channel)
-  | Page_ChannelDay Channel Day [Log] 
+  | Page_ChannelDay Channel Day [Log]
 
 -- | Main entry point to our generator.
 --
@@ -110,8 +113,9 @@ generateSite = do
       let ch = Rib.sourceVal chSrc
       forM_ (Map.toList $ _channel_logs ch) $ \(day, logs) -> do
         dayFp <- liftIO $ parseRelFile $ toString $ _channel_name ch <> "/" <> show day <> ".html"
-        Rib.writeHtml dayFp $
-          renderPage $ Page_ChannelDay ch day logs
+        Rib.writeHtml dayFp
+          $ renderPage
+          $ Page_ChannelDay ch day logs
       pure chSrc
   -- Write an index.html linking to the aforementioned files.
   Rib.writeHtml [relfile|index.html|]
@@ -149,8 +153,9 @@ renderPage page = with html_ [lang_ "en"] $ do
         Page_Channel (Rib.sourceVal -> ch) -> do
           h1_ $ toHtml $ _channel_name ch
           forM_ (Map.keys $ _channel_logs ch) $ \day -> do
-            li_ $ do 
-              b_ $ with a_ [href_ $ "/" <> _channel_name ch <> "/" <> show day <> ".html"] $ do 
+            li_ $ do
+              -- TODO: refactor `Source` so we can use it for source-less page slugs
+              b_ $ with a_ [href_ $ "/" <> _channel_name ch <> "/" <> show day <> ".html"] $ do
                 toHtml $ show @Text day
         Page_ChannelDay ch day logs -> do
           with article_ [class_ "post"] $ do
@@ -159,7 +164,10 @@ renderPage page = with html_ [lang_ "en"] $ do
               h2_ $ toHtml $ show @Text day
               forM_ logs $ \(Log ts s) -> do
                 li_ $ do
-                  span_ $ toHtml $ show @Text ts
+                  let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S:%q" ts
+                  with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
+                    $ toHtml
+                    $ formatTime defaultTimeLocale "%H:%M" ts
                   code_ $ toHtml s
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
