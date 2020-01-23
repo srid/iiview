@@ -1,0 +1,1 @@
+/home/srid/keybase/private/srid,kbpbot/ircview-site
