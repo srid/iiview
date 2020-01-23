@@ -1,6 +1,6 @@
-# rib-sample
+# iiview
 
-Sample site for the [Rib](https://github.com/srid/rib) static site generator
+HTML viewer for the suckless [ii](https://tools.suckless.org/ii/) IRC client.
 
 ## Prerequisites
 
@@ -24,19 +24,9 @@ cachix use srid
 To build and run the site:
 
 ```bash
-nix-shell --run 'ghcid -T main'
+nix-shell --run 'ghcid -T main'  # or, ./scripts/ghcid
 ```
 
 This launches a web server at http://localhost:8080 serving the statically
-generated content. Changing either `Main.hs` or the content in `./a` reloads everything.
+generated content. It auto-reloads as the IRC logs are updated, or when the Haskell source is modified.
 
-## Use a custom rib and port
-
-You might have a local checkout of rib with certain modifications. And you might
-want to run ghcid with the server running at a different port. Both of this can
-achieved using the following command:
-
-```bash
-# Assuming rib is cloned at ../rib
-nix-shell --arg rib ../rib --run 'ghcid -T ":main serve -p 9876"'
-```

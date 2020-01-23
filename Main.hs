@@ -13,6 +13,10 @@ import Clay ((?), Css, em, pc, pct, px, sym)
 import qualified Clay as C
 import Data.Aeson (FromJSON, fromJSON)
 import qualified Data.Aeson as Aeson
+import Data.Map (Map)
+import qualified Data.Map.Strict as Map
+import Data.Time
+import Data.Time.Clock.POSIX
 import Development.Shake
 import Lucid
 import Path
@@ -25,24 +29,32 @@ import Prelude hiding (div, some)
 
 type Parser = Parsec Void Text
 
+data Channel
+  = Channel
+      { _channel_name :: Text,
+        _channel_logs :: Map Day [Log]
+      }
+  deriving (Eq, Show)
+
 -- | Parse the channel name out of its "out" filename (eg: "#nixos/")
 channelDirNameParser :: Parser Text
 channelDirNameParser = do
   _ <- some (char '#')
   toText <$> someTill printChar (char '/')
 
-data Channel
-  = Channel
-      { _channel_name :: Text,
-        _channel_logs :: [Log]
+data Log
+  = Log
+      { _log_time :: UTCTime,
+        _log_msg :: Text
       }
   deriving (Eq, Show)
 
-data Log
-  = Log
-      { _log_text :: Text
-      }
-  deriving (Eq, Show)
+logParser :: Parser Log
+logParser = do
+  Just ts' :: Maybe Int <- fmap readMaybe $ some digitChar
+  let ts = posixSecondsToUTCTime $ fromIntegral ts'
+  msg <- toText <$> someTill anySingle eof
+  pure $ Log ts msg
 
 parseChannel :: (MonadIO m, MonadFail m) => Path b File -> m (Either Text Channel)
 parseChannel fp = do
@@ -51,8 +63,14 @@ parseChannel fp = do
     Left e ->
       pure $ Left $ toText $ errorBundlePretty e
     Right chName -> do
-      logs <- fmap Log . lines <$> readFileText (toFilePath fp)
-      pure $ Right $ Channel chName logs
+      logsRaw <- lines <$> readFileText (toFilePath fp)
+      logs <- flip traverse logsRaw $ \logRaw -> do
+        case parse logParser "" logRaw of
+          Left e ->
+            fail $ errorBundlePretty e
+          Right log ->
+            pure log
+      pure $ Right $ Channel chName $ Map.fromListWith (<>) $ (\l -> (utctDay $ _log_time l, [l])) <$> logs
 
 -- | This will be our type representing generated pages.
 --
@@ -120,9 +138,13 @@ renderPage page = with html_ [lang_ "en"] $ do
           with article_ [class_ "post"] $ do
             h1_ $ toHtml $ _channel_name ch
             with div_ [class_ "logs"]
-              $ forM_ (_channel_logs ch)
-              $ \(Log logS) -> do
-                li_ $ code_ $ toHtml logS
+              $ forM_ (Map.toList $ _channel_logs ch)
+              $ \(day, logs) -> do
+                h2_ $ toHtml $ show @Text day
+                forM_ logs $ \(Log ts s) -> do
+                  li_ $ do
+                    span_ $ toHtml $ show @Text ts
+                    code_ $ toHtml s
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
 

@@ -26,4 +26,6 @@ executable iiview
         rib,
         relude,
         shake,
-        text
+        text,
+        time,
+        containers
