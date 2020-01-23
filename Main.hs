@@ -155,17 +155,18 @@ renderPage page = with html_ [lang_ "en"] $ do
               b_ $ with a_ [href_ $ "/" <> channelDayFile ch day] $ do
                 toHtml $ show @Text day
         Page_ChannelDay ch day logs -> do
-          with article_ [class_ "post"] $ do
+          with article_ [class_ "channel"] $ do
             h1_ $ toHtml $ _channel_name ch
-            with div_ [class_ "logs"] $ do
+            with div_ [class_ "ui grid logs"] $ do
               h2_ $ toHtml $ show @Text day
               forM_ logs $ \(Log ts msg) -> do
-                with li_ [class_ "log-message"] $ do
-                  let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
-                  with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
-                    $ toHtml
-                    $ formatTime defaultTimeLocale "%H:%M" ts
-                  case msg of 
+                with div_ [class_ "row log-message top aligned"] $ do
+                  with div_ [class_ "column timestamp"] $ do
+                    let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
+                    with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
+                      $ toHtml
+                      $ formatTime defaultTimeLocale "%H:%M" ts
+                  with div_ [class_ "fourteen wide column message-text"] $ case msg of 
                     Msg_Control s -> with span_ [class_ "control"] $ toHtml s
                     Msg_User (User user) s -> with span_ [class_ "user"] $ do 
                       b_ $ toHtml user
@@ -188,8 +189,15 @@ pageStyle = "div#thesite" ? do
     C.marginTop $ em 1
     "b" ? C.fontSize (em 1.2)
     "p" ? sym C.margin (px 0)
-  ".log-message" ? do 
-    "span.control" ? 
-      C.color C.grey
-    "span.user" ? 
-      C.color C.black
+  ".ui.grid.logs" ? do
+    ".row.log-message" ? do
+      C.important $ do 
+        C.paddingTop $ em 0.5
+        C.paddingBottom $ em 0
+      "span.control" ? 
+        C.color C.grey
+      "span.user" ? 
+        C.color C.black
+      ".message-text" ? do
+        C.fontFamily [] [C.monospace]
+        C.fontSize $ pct 85
