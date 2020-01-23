@@ -78,7 +78,8 @@ parseChannel fp = do
 -- `Pandoc`; but you may define your own as well.
 data Page
   = Page_Index [Source Channel]
-  | Page_Single (Source Channel)
+  | Page_Channel (Source Channel)
+  | Page_ChannelDay Channel Day [Log] 
 
 -- | Main entry point to our generator.
 --
@@ -104,8 +105,14 @@ generateSite = do
   -- - File patterns to build
   -- - Function that will generate the HTML (see below)
   chs <-
-    Rib.forEvery [[relfile|#*/out|]] $ \src -> do
-      Rib.buildHtml' src parseChannel channelOutFile $ renderPage . Page_Single
+    Rib.forEvery [[relfile|#*/out|]] $ \fp -> do
+      chSrc <- Rib.buildHtml' fp parseChannel channelOutFile $ renderPage . Page_Channel
+      let ch = Rib.sourceVal chSrc
+      forM_ (Map.toList $ _channel_logs ch) $ \(day, logs) -> do
+        dayFp <- liftIO $ parseRelFile $ toString $ _channel_name ch <> "/" <> show day <> ".html"
+        Rib.writeHtml dayFp $
+          renderPage $ Page_ChannelDay ch day logs
+      pure chSrc
   -- Write an index.html linking to the aforementioned files.
   Rib.writeHtml [relfile|index.html|]
     $ renderPage
@@ -123,8 +130,13 @@ renderPage page = with html_ [lang_ "en"] $ do
     stylesheet "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.11.2/css/all.min.css"
     title_ $ case page of
       Page_Index _ -> "ii viewer"
-      Page_Single ch -> do
-        toHtml $ _channel_name $ Rib.sourceVal ch
+      Page_Channel (Rib.sourceVal -> ch) -> do
+        toHtml $ _channel_name ch
+        " - ii viewer"
+      Page_ChannelDay ch day _ -> do
+        toHtml $ show @Text day
+        " - "
+        toHtml $ _channel_name ch
         " - ii viewer"
     style_ [type_ "text/css"] $ C.render pageStyle
   body_ $ do
@@ -134,17 +146,21 @@ renderPage page = with html_ [lang_ "en"] $ do
           with li_ [class_ "pages"] $ do
             b_ $ with a_ [href_ $ Rib.sourceUrl ch] $ do
               toHtml $ _channel_name $ Rib.sourceVal ch
-        Page_Single (Rib.sourceVal -> ch) ->
+        Page_Channel (Rib.sourceVal -> ch) -> do
+          h1_ $ toHtml $ _channel_name ch
+          forM_ (Map.keys $ _channel_logs ch) $ \day -> do
+            li_ $ do 
+              b_ $ with a_ [href_ $ "/" <> _channel_name ch <> "/" <> show day <> ".html"] $ do 
+                toHtml $ show @Text day
+        Page_ChannelDay ch day logs -> do
           with article_ [class_ "post"] $ do
             h1_ $ toHtml $ _channel_name ch
-            with div_ [class_ "logs"]
-              $ forM_ (Map.toList $ _channel_logs ch)
-              $ \(day, logs) -> do
-                h2_ $ toHtml $ show @Text day
-                forM_ logs $ \(Log ts s) -> do
-                  li_ $ do
-                    span_ $ toHtml $ show @Text ts
-                    code_ $ toHtml s
+            with div_ [class_ "logs"] $ do
+              h2_ $ toHtml $ show @Text day
+              forM_ logs $ \(Log ts s) -> do
+                li_ $ do
+                  span_ $ toHtml $ show @Text ts
+                  code_ $ toHtml s
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
 
