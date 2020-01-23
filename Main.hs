@@ -57,10 +57,11 @@ channelDirNameParser = do
 mkChannel :: Text -> [Log] -> Channel
 mkChannel chName = Channel chName . groupLogs
   where
-    groupLogs =
-      fmap (sortOn _log_time)
-        . Map.fromListWith (<>)
-        . fmap (\l -> (utctDay $ _log_time l, [l]))
+    groupLogs :: [Log] -> Map Day [Log]
+    groupLogs = flip foldl' mempty $ \m log ->
+      let k = utctDay $ _log_time log
+          v = [log]
+       in Map.insertWith (\new old -> old <> new) k v m
 
 -- Parse ii's channel "out" file
 parseChannelFile :: (MonadIO m, MonadFail m) => Path b File -> m (Either Text Channel)
@@ -132,7 +133,7 @@ renderPage page = with html_ [lang_ "en"] $ do
               toHtml $ _channel_name $ Rib.sourceVal ch
         Page_Channel (Rib.sourceVal -> ch) -> do
           h1_ $ toHtml $ _channel_name ch
-          forM_ (Map.keys $ _channel_logs ch) $ \day -> do
+          forM_ (sort $ Map.keys $ _channel_logs ch) $ \day -> do
             li_ $ do
               b_ $ with a_ [href_ $ "/" <> channelDayFile ch day] $ do
                 toHtml $ show @Text day
@@ -143,7 +144,7 @@ renderPage page = with html_ [lang_ "en"] $ do
               h2_ $ toHtml $ show @Text day
               forM_ logs $ \(Log ts s) -> do
                 li_ $ do
-                  let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S:%q" ts
+                  let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
                   with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
                     $ toHtml
                     $ formatTime defaultTimeLocale "%H:%M" ts
