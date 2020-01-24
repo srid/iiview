@@ -93,6 +93,7 @@ data Page
   = Page_Index [Source Channel]
   | Page_Channel (Source Channel)
   | Page_ChannelDay Channel Day [Log]
+  | Page_User User [(Text, [Log])]
 
 main :: IO ()
 main = Rib.run [reldir|a|] [reldir|b|] generateSite
@@ -111,6 +112,20 @@ generateSite = do
           $ renderPage
           $ Page_ChannelDay ch day logs
       pure chSrc
+  -- User pages
+  caleMsgs <- fmap catMaybes $ forM (Rib.sourceVal <$> chs) $ \ch -> do
+    let cales = catMaybes $ flip fmap (mconcat $ Map.elems $ _channel_logs ch) $ \log@(Log _ msg) -> 
+         case msg of 
+           Msg_User (User "Cale") _ -> Just log
+           _ -> Nothing
+    if null cales 
+      then pure Nothing
+      else pure $ Just (_channel_name ch, cales)
+
+  Rib.writeHtml [relfile|users/Cale.html|]
+    $ renderPage 
+    $ Page_User (User "Cale") caleMsgs
+      
   -- Write an index.html linking to the aforementioned files.
   Rib.writeHtml [relfile|index.html|]
     $ renderPage
@@ -140,6 +155,9 @@ renderPage page = with html_ [lang_ "en"] $ do
         " - "
         toHtml $ _channel_name ch
         " - ii viewer"
+      Page_User (User u) _ -> do
+        toHtml u
+        " - ii viewer"
     style_ [type_ "text/css"] $ C.render pageStyle
   body_ $ do
     with div_ [class_ "ui text container", id_ "thesite"] $ do
@@ -157,23 +175,48 @@ renderPage page = with html_ [lang_ "en"] $ do
         Page_ChannelDay ch day logs -> do
           with article_ [class_ "channel"] $ do
             h1_ $ toHtml $ _channel_name ch
-            with div_ [class_ "ui grid logs"] $ do
-              h2_ $ toHtml $ show @Text day
-              forM_ logs $ \(Log ts msg) -> do
-                with div_ [class_ "row log-message top aligned"] $ do
-                  with div_ [class_ "column timestamp"] $ do
-                    let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
-                    with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
-                      $ toHtml
-                      $ formatTime defaultTimeLocale "%H:%M" ts
-                  with div_ [class_ "fourteen wide column message-text"] $ case msg of 
-                    Msg_Control s -> with span_ [class_ "control"] $ toHtml s
-                    Msg_User (User user) s -> with span_ [class_ "user"] $ do 
-                      b_ $ toHtml user
-                      ": "
-                      toHtml s
+            h2_ $ toHtml $ show @Text day
+            renderLogs LogTimeFormat_SameDay logs
+        Page_User (User user) chLogs -> do 
+          h1_ $ toHtml user 
+          forM_ chLogs $ \(chName, logs) -> do
+            h2_ $ toHtml chName
+            renderLogs LogTimeFormat_Full logs
+
   where
     stylesheet x = link_ [rel_ "stylesheet", href_ x]
+
+data LogTimeFormat
+  = LogTimeFormat_SameDay
+  | LogTimeFormat_Full
+  deriving (Eq, Show)
+
+renderLogs :: LogTimeFormat -> [Log] -> Html ()
+renderLogs ltf logs = do
+  with div_ [class_ "ui grid logs"] $ do
+    forM_ logs $ \(Log ts msg) -> do
+      with div_ [class_ "row log-message top aligned"] $ do
+        with div_ [class_ $ timeColumnWidth <> " column timestamp"] $ do
+          let anchor = toText $ formatTime defaultTimeLocale "%H:%M:%S" ts
+          with a_ [title_ $ show @Text ts, name_ anchor, href_ $ "#" <> anchor]
+            $ toHtml
+            $ formatLogTime ts
+        with div_ [class_ "fourteen wide column message-text"] $ case msg of 
+          Msg_Control s -> with span_ [class_ "control"] $ toHtml s
+          Msg_User (User user) s -> with span_ [class_ "user"] $ do 
+            b_ $ toHtml user
+            ": "
+            toHtml s
+  where
+    timeColumnWidth = 
+      case ltf of 
+        LogTimeFormat_SameDay -> "two wide"
+        LogTimeFormat_Full -> "four wide"
+    formatLogTime ts = 
+      case ltf of 
+        LogTimeFormat_SameDay -> formatTime defaultTimeLocale "%X" ts
+        LogTimeFormat_Full -> formatTime defaultTimeLocale "%F %X" ts
+                        
 
 -- | Define your site CSS here
 pageStyle :: Css
